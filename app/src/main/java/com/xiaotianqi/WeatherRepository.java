@@ -151,33 +151,70 @@ public class WeatherRepository {
     }
 
     private WeatherData fetchWeatherInternal(CityOption opt, boolean updatePrimaryCache) throws Exception {
+        String selectedApi = AppSettings.getSelectedApiId(context);
         WeatherData data = null;
         Exception primaryError = null;
+        String usedProvider = null;
 
-        if (opt.province != null && !opt.province.isEmpty() && opt.city != null && !opt.city.isEmpty()) {
-            try {
-                data = fetchFromTencent(opt);
-                if (updatePrimaryCache) {
-                    AppSettings.setWeatherProvider(context, "腾讯天气（中国大陆直连）");
+        // 1. 按用户选择的天气服务商请求
+        try {
+            if (AppSettings.API_CUSTOM.equals(selectedApi)) {
+                String customUrl = AppSettings.getCustomApiUrl(context);
+                if (customUrl.isEmpty()) {
+                    throw new Exception("未填写自定义 API 地址");
                 }
-            } catch (Exception e) {
-                primaryError = e;
+                data = fetchFromCustomUrl(opt, customUrl);
+                usedProvider = "自定义 API";
+            } else if (AppSettings.API_OPEN_METEO.equals(selectedApi)) {
+                data = fetchFromOpenMeteo(opt, false);
+                usedProvider = "Open-Meteo（全球 10 天）";
+            } else if (AppSettings.API_OPEN_METEO_CMA.equals(selectedApi)) {
+                data = fetchFromOpenMeteo(opt, true);
+                usedProvider = "Open-Meteo（中国气象局 CMA）";
+            } else if (AppSettings.API_WTTR.equals(selectedApi)) {
+                data = fetchFromWttr(opt);
+                usedProvider = "wttr.in（免 Key 实时天气）";
+            } else if (AppSettings.API_SEVENTIMER.equals(selectedApi)) {
+                data = fetchFromSevenTimer(opt);
+                usedProvider = "7Timer!（7 天轻量气象）";
+            } else {
+                // 默认：腾讯天气（中国大陆直连）
+                if (opt.province != null && !opt.province.isEmpty() && opt.city != null && !opt.city.isEmpty()) {
+                    data = fetchFromTencent(opt);
+                    usedProvider = "腾讯天气（国内直连）";
+                }
             }
+        } catch (Exception e) {
+            primaryError = e;
         }
 
-        if (data == null && (opt.latitude != 0 || opt.longitude != 0)) {
-            try {
-                data = fetchFromOpenMeteo(opt);
-                if (updatePrimaryCache) {
-                    AppSettings.setWeatherProvider(context, "Open-Meteo（备用坐标服务）");
+        // 2. 若所选非自定义 API 失败或无省市信息，自动降级兜底（腾讯 <-> Open-Meteo）
+        if (data == null && !AppSettings.API_CUSTOM.equals(selectedApi)) {
+            if (!AppSettings.API_TENCENT.equals(selectedApi)
+                    && opt.province != null && !opt.province.isEmpty()
+                    && opt.city != null && !opt.city.isEmpty()) {
+                try {
+                    data = fetchFromTencent(opt);
+                    usedProvider = "腾讯天气（自动兜底）";
+                } catch (Exception ignored) {
                 }
-            } catch (Exception e) {
-                if (primaryError == null) primaryError = e;
+            }
+            if (data == null && (opt.latitude != 0 || opt.longitude != 0)) {
+                try {
+                    data = fetchFromOpenMeteo(opt, false);
+                    usedProvider = "Open-Meteo（自动兜底）";
+                } catch (Exception e) {
+                    if (primaryError == null) primaryError = e;
+                }
             }
         }
 
         if (data == null) {
             throw (primaryError != null ? primaryError : new Exception("无法获取天气数据"));
+        }
+
+        if (updatePrimaryCache && usedProvider != null) {
+            AppSettings.setWeatherProvider(context, usedProvider);
         }
 
         data.isFromCache = false;
@@ -288,17 +325,23 @@ public class WeatherRepository {
     }
 
     /**
-     * 备用引擎：Open-Meteo（按经纬度拉取 10 天预报）
+     * 引擎：Open-Meteo（支持全球默认模型或中国气象局 CMA 模型，拉取 10 天预报）
      */
-    private WeatherData fetchFromOpenMeteo(CityOption opt) throws Exception {
+    private WeatherData fetchFromOpenMeteo(CityOption opt, boolean useCmaModel) throws Exception {
+        double lat = opt.latitude != 0 ? opt.latitude : DEFAULT_CITY.latitude;
+        double lon = opt.longitude != 0 ? opt.longitude : DEFAULT_CITY.longitude;
         String urlStr = String.format(Locale.US,
                 "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
                         + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m"
                         + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,uv_index_max"
-                        + "&timezone=auto&forecast_days=10",
-                opt.latitude, opt.longitude);
+                        + "&timezone=auto&forecast_days=10"
+                        + (useCmaModel ? "&models=cma_grapes_global" : ""),
+                lat, lon);
 
-        String body = httpGet(urlStr);
+        return parseOpenMeteoBody(httpGet(urlStr), opt, lat, lon);
+    }
+
+    private WeatherData parseOpenMeteoBody(String body, CityOption opt, double lat, double lon) throws Exception {
         JSONObject root = new JSONObject(body);
         JSONObject current = root.getJSONObject("current");
         JSONObject daily = root.getJSONObject("daily");
@@ -308,8 +351,8 @@ public class WeatherRepository {
         data.province = opt.province;
         data.city = opt.city;
         data.county = opt.county;
-        data.latitude = opt.latitude;
-        data.longitude = opt.longitude;
+        data.latitude = lat;
+        data.longitude = lon;
         data.currentTemp = current.optDouble("temperature_2m", 0);
         data.apparentTemp = current.optDouble("apparent_temperature", data.currentTemp);
         data.humidity = current.optInt("relative_humidity_2m", -1);
@@ -343,6 +386,303 @@ public class WeatherRepository {
         }
         assignDayLabels(data.dailyList);
         return data;
+    }
+
+    /**
+     * 引擎：wttr.in（免 Key 实时天气 + 3 天预报）
+     */
+    private WeatherData fetchFromWttr(CityOption opt) throws Exception {
+        double lat = opt.latitude != 0 ? opt.latitude : DEFAULT_CITY.latitude;
+        double lon = opt.longitude != 0 ? opt.longitude : DEFAULT_CITY.longitude;
+        String urlStr = String.format(Locale.US, "https://wttr.in/%.4f,%.4f?format=j1&lang=zh", lat, lon);
+        return parseWttrBody(httpGet(urlStr), opt, lat, lon);
+    }
+
+    private WeatherData parseWttrBody(String body, CityOption opt, double lat, double lon) throws Exception {
+        JSONObject root = new JSONObject(body);
+        JSONArray curArr = root.getJSONArray("current_condition");
+        JSONObject cur = curArr.getJSONObject(0);
+        JSONArray weatherArr = root.getJSONArray("weather");
+
+        WeatherData data = new WeatherData();
+        data.cityName = opt.name;
+        data.province = opt.province;
+        data.city = opt.city;
+        data.county = opt.county;
+        data.latitude = lat;
+        data.longitude = lon;
+        data.currentTemp = parseDoubleSafe(cur.optString("temp_C", "0"), 0);
+        data.apparentTemp = parseDoubleSafe(cur.optString("FeelsLikeC", ""), data.currentTemp);
+        data.humidity = parseIntSafe(cur.optString("humidity", "-1"), -1);
+        data.windSpeed = parseDoubleSafe(cur.optString("windspeedKmph", "10"), 10);
+        data.windDesc = WeatherModels.getWindDesc(data.windSpeed);
+        String zhDesc = extractWttrDesc(cur);
+        data.weatherText = mapEnglishOrChineseWeather(zhDesc);
+        data.weatherCode = WeatherModels.mapTextToCode(data.weatherText);
+        data.fetchedAtMillis = System.currentTimeMillis();
+        data.updateTime = new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(new Date());
+
+        for (int i = 0; i < weatherArr.length(); i++) {
+            JSONObject day = weatherArr.getJSONObject(i);
+            DailyForecast df = new DailyForecast();
+            df.date = day.optString("date", "");
+            df.maxTemp = parseDoubleSafe(day.optString("maxtempC", "0"), 0);
+            df.minTemp = parseDoubleSafe(day.optString("mintempC", "0"), 0);
+            df.precipProb = -1;
+            df.maxWindSpeed = data.windSpeed;
+            String dText = data.weatherText;
+            JSONArray hourly = day.optJSONArray("hourly");
+            if (hourly != null && hourly.length() > 0) {
+                JSONObject mid = hourly.getJSONObject(hourly.length() / 2);
+                dText = mapEnglishOrChineseWeather(extractWttrDesc(mid));
+                df.precipProb = parseIntSafe(mid.optString("chanceofrain", "-1"), -1);
+                df.maxWindSpeed = parseDoubleSafe(mid.optString("windspeedKmph", "10"), 10);
+            }
+            df.weatherText = dText;
+            df.weatherCode = WeatherModels.mapTextToCode(df.weatherText);
+            df.windDesc = WeatherModels.getWindDesc(df.maxWindSpeed);
+            data.dailyList.add(df);
+        }
+        assignDayLabels(data.dailyList);
+        return data;
+    }
+
+    private String extractWttrDesc(JSONObject obj) {
+        JSONArray zh = obj.optJSONArray("lang_zh");
+        if (zh != null && zh.length() > 0) {
+            String v = zh.optJSONObject(0) != null ? zh.optJSONObject(0).optString("value", "") : "";
+            if (!v.trim().isEmpty()) return v.trim();
+        }
+        JSONArray en = obj.optJSONArray("weatherDesc");
+        if (en != null && en.length() > 0) {
+            return en.optJSONObject(0) != null ? en.optJSONObject(0).optString("value", "多云").trim() : "多云";
+        }
+        return "多云";
+    }
+
+    /**
+     * 引擎：7Timer!（7 天轻量气象）
+     */
+    private WeatherData fetchFromSevenTimer(CityOption opt) throws Exception {
+        double lat = opt.latitude != 0 ? opt.latitude : DEFAULT_CITY.latitude;
+        double lon = opt.longitude != 0 ? opt.longitude : DEFAULT_CITY.longitude;
+        String urlStr = String.format(Locale.US,
+                "https://www.7timer.info/bin/civillight.php?lon=%.4f&lat=%.4f&ac=0&unit=metric&output=json",
+                lon, lat);
+        return parseSevenTimerBody(httpGet(urlStr), opt, lat, lon);
+    }
+
+    private WeatherData parseSevenTimerBody(String body, CityOption opt, double lat, double lon) throws Exception {
+        JSONObject root = new JSONObject(body);
+        JSONArray series = root.getJSONArray("dataseries");
+        WeatherData data = new WeatherData();
+        data.cityName = opt.name;
+        data.province = opt.province;
+        data.city = opt.city;
+        data.county = opt.county;
+        data.latitude = lat;
+        data.longitude = lon;
+        data.fetchedAtMillis = System.currentTimeMillis();
+        data.updateTime = new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(new Date());
+
+        for (int i = 0; i < series.length(); i++) {
+            JSONObject item = series.getJSONObject(i);
+            String rawDate = String.valueOf(item.optInt("date", 0));
+            String fmtDate = rawDate.length() == 8
+                    ? rawDate.substring(0, 4) + "-" + rawDate.substring(4, 6) + "-" + rawDate.substring(6, 8)
+                    : rawDate;
+            JSONObject t2m = item.getJSONObject("temp2m");
+            DailyForecast df = new DailyForecast();
+            df.date = fmtDate;
+            df.maxTemp = t2m.optDouble("max", 0);
+            df.minTemp = t2m.optDouble("min", 0);
+            df.weatherText = mapSevenTimerWeather(item.optString("weather", "cloudy"));
+            df.weatherCode = WeatherModels.mapTextToCode(df.weatherText);
+            int wCat = item.optInt("wind10m_max", 2);
+            df.maxWindSpeed = wCat * 8.0;
+            df.windDesc = WeatherModels.getWindDesc(df.maxWindSpeed);
+            df.precipProb = -1;
+            data.dailyList.add(df);
+        }
+        assignDayLabels(data.dailyList);
+        if (!data.dailyList.isEmpty()) {
+            DailyForecast today = data.dailyList.get(0);
+            data.currentTemp = Math.round((today.maxTemp + today.minTemp) / 2.0);
+            data.apparentTemp = data.currentTemp;
+            data.humidity = -1;
+            data.weatherText = today.weatherText;
+            data.weatherCode = today.weatherCode;
+            data.windSpeed = today.maxWindSpeed;
+            data.windDesc = today.windDesc;
+        }
+        return data;
+    }
+
+    /**
+     * 自定义 API：支持占位符 {lat} {lon} {province} {city} {county} {name}，
+     * 并自动识别 Open-Meteo / 腾讯天气 / wttr.in / 7Timer / 和风天气(QWeather) / 通用 JSON 格式
+     */
+    private WeatherData fetchFromCustomUrl(CityOption opt, String templateUrl) throws Exception {
+        double lat = opt.latitude != 0 ? opt.latitude : DEFAULT_CITY.latitude;
+        double lon = opt.longitude != 0 ? opt.longitude : DEFAULT_CITY.longitude;
+        String url = templateUrl
+                .replace("{lat}", String.format(Locale.US, "%.4f", lat))
+                .replace("{lon}", String.format(Locale.US, "%.4f", lon))
+                .replace("{province}", URLEncoder.encode(opt.province != null ? opt.province : "", "UTF-8"))
+                .replace("{city}", URLEncoder.encode(opt.city != null ? opt.city : "", "UTF-8"))
+                .replace("{county}", URLEncoder.encode(opt.county != null ? opt.county : "", "UTF-8"))
+                .replace("{name}", URLEncoder.encode(opt.name != null ? opt.name : "", "UTF-8"));
+
+        String body = httpGet(url);
+        JSONObject root = new JSONObject(body);
+
+        // 1) Open-Meteo 格式
+        if (root.has("current") && root.has("daily")) {
+            return parseOpenMeteoBody(body, opt, lat, lon);
+        }
+        // 2) wttr.in 格式
+        if (root.has("current_condition") && root.has("weather")) {
+            return parseWttrBody(body, opt, lat, lon);
+        }
+        // 3) 7Timer 格式
+        if (root.has("dataseries")) {
+            return parseSevenTimerBody(body, opt, lat, lon);
+        }
+        // 4) 腾讯天气格式
+        if (root.has("data") && root.optJSONObject("data") != null
+                && root.optJSONObject("data").has("forecast_24h")) {
+            return parseTencentBody(body, opt);
+        }
+        // 5) 和风天气(QWeather) 或通用 JSON 格式（含 now / temp / temperature）
+        WeatherData data = new WeatherData();
+        data.cityName = opt.name;
+        data.province = opt.province;
+        data.city = opt.city;
+        data.county = opt.county;
+        data.latitude = lat;
+        data.longitude = lon;
+        data.fetchedAtMillis = System.currentTimeMillis();
+        data.updateTime = new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(new Date());
+
+        JSONObject nowObj = root.optJSONObject("now");
+        if (nowObj != null) {
+            data.currentTemp = parseDoubleSafe(nowObj.optString("temp", "0"), 0);
+            data.apparentTemp = parseDoubleSafe(nowObj.optString("feelsLike", ""), data.currentTemp);
+            data.humidity = parseIntSafe(nowObj.optString("humidity", "-1"), -1);
+            data.weatherText = nowObj.optString("text", "多云");
+            data.weatherCode = WeatherModels.mapTextToCode(data.weatherText);
+            data.windSpeed = parseDoubleSafe(nowObj.optString("windSpeed", "10"), 10);
+            data.windDesc = buildWindText(nowObj.optString("windDir", ""), nowObj.optString("windScale", ""), data.windSpeed);
+        } else {
+            data.currentTemp = root.optDouble("temp", root.optDouble("temperature", 20.0));
+            data.apparentTemp = data.currentTemp;
+            data.humidity = root.optInt("humidity", -1);
+            data.weatherText = mapEnglishOrChineseWeather(root.optString("weather", root.optString("text", "多云")));
+            data.weatherCode = WeatherModels.mapTextToCode(data.weatherText);
+            data.windSpeed = root.optDouble("windSpeed", 10.0);
+            data.windDesc = WeatherModels.getWindDesc(data.windSpeed);
+        }
+
+        DailyForecast today = new DailyForecast();
+        today.date = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        today.dayLabel = "今天";
+        today.weatherText = data.weatherText;
+        today.weatherCode = data.weatherCode;
+        today.maxTemp = root.optDouble("maxTemp", data.currentTemp + 3);
+        today.minTemp = root.optDouble("minTemp", data.currentTemp - 3);
+        today.maxWindSpeed = data.windSpeed;
+        today.windDesc = data.windDesc;
+        today.precipProb = -1;
+        data.dailyList.add(today);
+        return data;
+    }
+
+    private WeatherData parseTencentBody(String body, CityOption opt) throws Exception {
+        JSONObject root = new JSONObject(body);
+        JSONObject dataObj = root.getJSONObject("data");
+        JSONObject observe = dataObj.optJSONObject("observe");
+        JSONObject forecast = dataObj.optJSONObject("forecast_24h");
+        if (forecast == null || forecast.length() == 0) {
+            throw new Exception("Empty forecast from Tencent");
+        }
+        WeatherData data = new WeatherData();
+        data.cityName = opt.name;
+        data.province = opt.province;
+        data.city = opt.city;
+        data.county = opt.county;
+        data.latitude = opt.latitude;
+        data.longitude = opt.longitude;
+        data.fetchedAtMillis = System.currentTimeMillis();
+        data.updateTime = new SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(new Date());
+        String todayStr = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        for (int idx = 0; idx <= 10; idx++) {
+            JSONObject item = forecast.optJSONObject(String.valueOf(idx));
+            if (item == null) continue;
+            String dateStr = item.optString("time", "");
+            if (dateStr.isEmpty() || dateStr.compareTo(todayStr) < 0) continue;
+            DailyForecast df = new DailyForecast();
+            df.date = dateStr;
+            df.weatherText = item.optString("day_weather", "多云");
+            df.nightWeather = item.optString("night_weather", "");
+            df.weatherCode = WeatherModels.mapTextToCode(df.weatherText);
+            df.maxTemp = parseDoubleSafe(item.optString("max_degree", "0"), 0);
+            df.minTemp = parseDoubleSafe(item.optString("min_degree", "0"), 0);
+            df.precipProb = -1;
+            String windDir = item.optString("day_wind_direction", "");
+            String windPow = item.optString("day_wind_power", "");
+            df.maxWindSpeed = WeatherModels.parseWindPowerToKmh(windPow);
+            df.windDesc = buildWindText(windDir, windPow, df.maxWindSpeed);
+            data.dailyList.add(df);
+        }
+        assignDayLabels(data.dailyList);
+        DailyForecast today = data.dailyList.get(0);
+        if (observe != null && observe.has("degree")) {
+            data.currentTemp = parseDoubleSafe(observe.optString("degree", ""), (today.maxTemp + today.minTemp) / 2.0);
+            data.apparentTemp = data.currentTemp;
+            data.humidity = parseIntSafe(observe.optString("humidity", "-1"), -1);
+            data.weatherText = observe.optString("weather", today.weatherText);
+            data.weatherCode = WeatherModels.mapTextToCode(data.weatherText);
+            String wDir = observe.optString("wind_direction_name", "");
+            String wPow = observe.optString("wind_power", "");
+            data.windSpeed = WeatherModels.parseWindPowerToKmh(wPow);
+            data.windDesc = buildWindText(wDir, wPow, data.windSpeed);
+        } else {
+            data.currentTemp = Math.round((today.maxTemp + today.minTemp) / 2.0);
+            data.apparentTemp = data.currentTemp;
+            data.humidity = -1;
+            data.weatherText = today.weatherText;
+            data.weatherCode = today.weatherCode;
+            data.windSpeed = today.maxWindSpeed;
+            data.windDesc = today.windDesc;
+        }
+        return data;
+    }
+
+    private String mapSevenTimerWeather(String w) {
+        if (w == null) return "多云";
+        String s = w.toLowerCase(Locale.US);
+        if (s.contains("ts")) return "雷阵雨";
+        if (s.contains("snow")) return "小雪";
+        if (s.contains("rain") || s.contains("shower")) return "小雨";
+        if (s.contains("clear")) return "晴";
+        if (s.contains("pcloudy") || s.contains("mcloudy")) return "多云";
+        if (s.contains("cloudy")) return "阴";
+        return "多云";
+    }
+
+    private String mapEnglishOrChineseWeather(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return "多云";
+        String s = raw.trim();
+        String lower = s.toLowerCase(Locale.US);
+        if (lower.contains("thunder")) return "雷阵雨";
+        if (lower.contains("heavy rain")) return "大雨";
+        if (lower.contains("rain") || lower.contains("drizzle") || lower.contains("shower")) return "小雨";
+        if (lower.contains("snow")) return "小雪";
+        if (lower.contains("fog") || lower.contains("mist")) return "雾";
+        if (lower.contains("overcast")) return "阴";
+        if (lower.contains("partly cloudy") || lower.contains("cloudy")) return "多云";
+        if (lower.contains("sunny") || lower.contains("clear")) return "晴";
+        return s;
     }
 
     /**

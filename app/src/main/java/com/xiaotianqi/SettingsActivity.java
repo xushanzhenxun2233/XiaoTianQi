@@ -7,10 +7,15 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.util.TypedValue;
+import android.view.View;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class SettingsActivity extends Activity implements TtsManager.Callback {
 
@@ -25,6 +30,11 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
     private TextView btnTestVoice;
 
     private TextView tvProviderName;
+    private LinearLayout layoutApiOptions;
+    private LinearLayout layoutCustomApiBox;
+    private EditText etCustomApiUrl;
+    private final List<TextView> apiOptionViews = new ArrayList<>();
+    private final List<String> apiOptionIds = new ArrayList<>();
     private TtsManager ttsManager;
 
     @Override
@@ -54,7 +64,27 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
         btnTestVoice = findViewById(R.id.btnTestVoice);
 
         tvProviderName = findViewById(R.id.tvProviderName);
-        tvProviderName.setText(AppSettings.getWeatherProvider(this));
+        layoutApiOptions = findViewById(R.id.layoutApiOptions);
+        layoutCustomApiBox = findViewById(R.id.layoutCustomApiBox);
+        etCustomApiUrl = findViewById(R.id.etCustomApiUrl);
+        TextView btnSaveCustomApi = findViewById(R.id.btnSaveCustomApi);
+
+        tvProviderName.setText("当前使用：" + AppSettings.getWeatherProvider(this));
+        etCustomApiUrl.setText(AppSettings.getCustomApiUrl(this));
+        btnSaveCustomApi.setOnClickListener(v -> {
+            String url = etCustomApiUrl.getText().toString().trim();
+            if (url.isEmpty() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+                Toast.makeText(this, "请输入以 http:// 或 https:// 开头的有效地址", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            AppSettings.setCustomApiUrl(this, url);
+            AppSettings.setSelectedApiId(this, AppSettings.API_CUSTOM);
+            AppSettings.setWeatherProvider(this, "自定义 API");
+            tvProviderName.setText("当前使用：自定义 API");
+            refreshSelectionStates();
+            Toast.makeText(this, "自定义 API 已保存，返回主页将自动刷新", Toast.LENGTH_SHORT).show();
+        });
+        setupApiOptions();
 
         btnFontNormal.setOnClickListener(v -> applyFontScale(AppSettings.FONT_NORMAL));
         btnFontLarge.setOnClickListener(v -> applyFontScale(AppSettings.FONT_LARGE));
@@ -80,6 +110,46 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
 
         setupTestButtons();
         refreshSelectionStates();
+    }
+
+    private void setupApiOptions() {
+        String[] ids = new String[] {
+                AppSettings.API_TENCENT,
+                AppSettings.API_OPEN_METEO,
+                AppSettings.API_OPEN_METEO_CMA,
+                AppSettings.API_WTTR,
+                AppSettings.API_SEVENTIMER,
+                AppSettings.API_CUSTOM
+        };
+        apiOptionViews.clear();
+        apiOptionIds.clear();
+        layoutApiOptions.removeAllViews();
+
+        for (int i = 0; i < ids.length; i++) {
+            final String id = ids[i];
+            TextView tv = new TextView(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = dp(8);
+            tv.setLayoutParams(lp);
+            tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+            tv.setText(AppSettings.getApiDisplayName(id));
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            tv.setOnClickListener(v -> {
+                AppSettings.setSelectedApiId(this, id);
+                if (!AppSettings.API_CUSTOM.equals(id)) {
+                    AppSettings.setWeatherProvider(this, AppSettings.getApiDisplayName(id));
+                    tvProviderName.setText("当前使用：" + AppSettings.getApiDisplayName(id));
+                    Toast.makeText(this, "已切换为：" + AppSettings.getApiDisplayName(id), Toast.LENGTH_SHORT).show();
+                } else {
+                    tvProviderName.setText("当前使用：自定义 API");
+                }
+                refreshSelectionStates();
+            });
+            layoutApiOptions.addView(tv);
+            apiOptionViews.add(tv);
+            apiOptionIds.add(id);
+        }
     }
 
     private void setupTestButtons() {
@@ -161,6 +231,12 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
         styleOption(btnRateSlow, Math.abs(curRate - AppSettings.RATE_SLOW) < 0.05f);
         styleOption(btnRateNormal, Math.abs(curRate - AppSettings.RATE_NORMAL) < 0.05f);
         styleOption(btnRateFast, Math.abs(curRate - AppSettings.RATE_FAST) < 0.05f);
+
+        String curApi = AppSettings.getSelectedApiId(this);
+        for (int i = 0; i < apiOptionIds.size(); i++) {
+            styleOption(apiOptionViews.get(i), apiOptionIds.get(i).equals(curApi));
+        }
+        layoutCustomApiBox.setVisibility(AppSettings.API_CUSTOM.equals(curApi) ? View.VISIBLE : View.GONE);
     }
 
     private void styleOption(TextView tv, boolean selected) {

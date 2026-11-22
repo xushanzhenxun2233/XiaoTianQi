@@ -11,6 +11,15 @@ public final class AppSettings {
     private static final String KEY_FONT_SCALE = "app_font_scale";
     private static final String KEY_SPEECH_RATE = "tts_speech_rate";
     private static final String KEY_PROVIDER = "weather_provider_name";
+    private static final String KEY_API_ID = "selected_weather_api_id";
+    private static final String KEY_CUSTOM_API_URL = "custom_weather_api_url";
+
+    public static final String API_TENCENT = "tencent";
+    public static final String API_OPEN_METEO = "open_meteo";
+    public static final String API_OPEN_METEO_CMA = "open_meteo_cma";
+    public static final String API_WTTR = "wttr";
+    public static final String API_SEVENTIMER = "seventimer";
+    public static final String API_CUSTOM = "custom";
 
     public static final float FONT_NORMAL = 0.95f;
     public static final float FONT_LARGE = 1.15f;     // 默认更大更清晰
@@ -57,6 +66,39 @@ public final class AppSettings {
                 .edit()
                 .putString(KEY_PROVIDER, provider)
                 .apply();
+    }
+
+    public static String getSelectedApiId(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_API_ID, API_TENCENT);
+    }
+
+    public static void setSelectedApiId(Context context, String apiId) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_API_ID, apiId)
+                .apply();
+    }
+
+    public static String getCustomApiUrl(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_CUSTOM_API_URL, "");
+    }
+
+    public static void setCustomApiUrl(Context context, String url) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_CUSTOM_API_URL, url != null ? url.trim() : "")
+                .apply();
+    }
+
+    public static String getApiDisplayName(String apiId) {
+        if (API_OPEN_METEO.equals(apiId)) return "Open-Meteo（全球 10 天）";
+        if (API_OPEN_METEO_CMA.equals(apiId)) return "Open-Meteo（中国气象局 CMA）";
+        if (API_WTTR.equals(apiId)) return "wttr.in（免 Key 实时天气）";
+        if (API_SEVENTIMER.equals(apiId)) return "7Timer!（7 天轻量气象）";
+        if (API_CUSTOM.equals(apiId)) return "自定义 API";
+        return "腾讯天气（国内直连 · 默认）";
     }
 
     /**

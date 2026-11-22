@@ -98,6 +98,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private boolean waitingForGps = false;
     private boolean simulatedOffline = false;
     private float appliedFontScale = AppSettings.FONT_LARGE;
+    private String appliedApiId = AppSettings.API_TENCENT;
+    private String appliedCustomApiUrl = "";
     private int flashStep = 0;
 
     private final Runnable extremeFlashTask = this::stepExtremeFlash;
@@ -141,6 +143,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         appliedFontScale = AppSettings.getFontScale(this);
+        appliedApiId = AppSettings.getSelectedApiId(this);
+        appliedCustomApiUrl = AppSettings.getCustomApiUrl(this);
         setContentView(R.layout.activity_main);
 
         bindViews();
@@ -247,6 +251,16 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         updateCitySwitchState(!simulatedOffline && isNetworkConnected());
         if (ttsManager != null) {
             ttsManager.setSpeechRate(AppSettings.getSpeechRate(this));
+        }
+        String nowApi = AppSettings.getSelectedApiId(this);
+        String nowCustomUrl = AppSettings.getCustomApiUrl(this);
+        if (!nowApi.equals(appliedApiId) || !nowCustomUrl.equals(appliedCustomApiUrl)) {
+            appliedApiId = nowApi;
+            appliedCustomApiUrl = nowCustomUrl;
+            if (!simulatedOffline) {
+                Toast.makeText(this, "正在使用新天气源刷新...", Toast.LENGTH_SHORT).show();
+                loadWeatherForCity(repository.getSavedCity(), false);
+            }
         }
     }
 

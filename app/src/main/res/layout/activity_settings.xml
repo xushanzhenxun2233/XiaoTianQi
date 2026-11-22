@@ -241,7 +241,7 @@
             android:layout_marginEnd="20dp"
             android:background="@color/divider" />
 
-        <!-- 3. 天气服务商信息 -->
+        <!-- 3. 天气服务商设置（多预设 + 自定义 API） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -251,7 +251,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="天气服务商"
+                android:text="天气服务商（API）"
                 android:textColor="#111111"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -260,18 +260,53 @@
                 android:id="@+id/tvProviderName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="腾讯天气（中国大陆直连）"
-                android:textColor="#333333"
-                android:textSize="15sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="魈天气 · 纯净离线多日缓存版"
-                android:textColor="#777777"
+                android:text="当前使用：腾讯天气（国内直连）"
+                android:textColor="#666666"
                 android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/layoutApiOptions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="vertical" />
+
+            <LinearLayout
+                android:id="@+id/layoutCustomApiBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/etCustomApiUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#F5F5F5"
+                    android:hint="输入自定义接口地址（支持 {lat} {lon} {province} {city} {county}）"
+                    android:inputType="textUri"
+                    android:padding="10dp"
+                    android:textColor="#111111"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/btnSaveCustomApi"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#111111"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="保存自定义 API 地址"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <View
