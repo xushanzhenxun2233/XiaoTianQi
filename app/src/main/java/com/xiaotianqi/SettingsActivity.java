@@ -155,9 +155,9 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
     private void setupTestButtons() {
         LinearLayout container = findViewById(R.id.layoutTestButtons);
         String[][] tests = new String[][] {
-                {"TEST: 极端高温（38°C 红色 + 闪烁2秒）", "test_extreme_heat"},
-                {"TEST: 严寒大雪（-6°C 蓝色 + 闪烁2秒）", "test_extreme_cold"},
-                {"TEST: 雷暴暴雨大风（绿色 + 高对比度提醒 + 闪烁2秒）", "test_extreme_storm"},
+                {"TEST: 极端高温（38°C 红色 + 闪烁5秒）", "test_extreme_heat"},
+                {"TEST: 严寒大雪（-6°C 蓝色 + 闪烁5秒）", "test_extreme_cold"},
+                {"TEST: 雷暴暴雨大风（绿色 + 高对比度提醒 + 闪烁5秒）", "test_extreme_storm"},
                 {"TEST: 断网状态（顶部地区置灰禁止切换）", "test_offline_mode"},
                 {"TEST: 数据严重过期（引导打开流量弹窗）", "test_expired_data"},
                 {"TEST: 无 TTS 引擎（引导安装语音引擎弹窗）", "test_no_tts"},

@@ -106,7 +106,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
 
     private void stepExtremeFlash() {
         if (isFinishing() || isDestroyed() || layoutExtremeAlert == null) return;
-        if (flashStep >= 8) {
+        if (flashStep >= 20) {
+            // 闪烁满 5 秒（20 * 250ms）后稳定停留在高对比度红底白字
             layoutExtremeAlert.setBackgroundColor(0xFFC62828);
             tvExtremeAlert.setTextColor(0xFFFFFFFF);
             return;
