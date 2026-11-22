@@ -31,6 +31,13 @@ public class WeatherRepository {
     public static final CityOption DEFAULT_CITY =
             new CityOption("荆州石首市", "湖北", "荆州", "石首", 29.7213, 112.4265);
 
+    public static final CityOption[] PRESET_CITIES = new CityOption[] {
+            DEFAULT_CITY,
+            new CityOption("沅陵县", "湖南", "怀化", "沅陵", 28.4557, 110.3963),
+            new CityOption("武清区", "天津", "天津", "武清", 39.3842, 117.0444),
+            new CityOption("通州区", "北京", "北京", "通州", 39.9097, 116.6564)
+    };
+
     private static final String PREFS_NAME = "xiao_weather_prefs_v2";
     private static final String KEY_NAME = "city_name";
     private static final String KEY_PROVINCE = "city_province";
@@ -40,6 +47,7 @@ public class WeatherRepository {
     private static final String KEY_LON = "city_lon";
     private static final String KEY_MANUAL_CITY = "manual_city";
     private static final String KEY_CACHE_NORMALIZED = "cache_normalized_json";
+    private static final String KEY_CITY_CACHE_PREFIX = "cache_city_";
 
     private final Context context;
     private final SharedPreferences prefs;
@@ -75,11 +83,26 @@ public class WeatherRepository {
                 .apply();
     }
 
+    private static String cityCacheKey(CityOption opt) {
+        if (opt == null) return KEY_CITY_CACHE_PREFIX + "default";
+        String key = (opt.province != null ? opt.province : "") + "_"
+                + (opt.city != null ? opt.city : "") + "_"
+                + (opt.county != null ? opt.county : "") + "_"
+                + (opt.name != null ? opt.name : "");
+        return KEY_CITY_CACHE_PREFIX + key;
+    }
+
     /**
-     * 读取本地多天缓存，并自动根据当前系统日期推进对齐“今天”的预报
+     * 读取指定城市的本地多天缓存（若无则回退到最近一次缓存），并自动对齐“今天”的预报
      */
-    public WeatherData loadCachedWeather() {
-        String json = prefs.getString(KEY_CACHE_NORMALIZED, null);
+    public WeatherData loadCachedWeather(CityOption opt) {
+        String json = null;
+        if (opt != null) {
+            json = prefs.getString(cityCacheKey(opt), null);
+        }
+        if (json == null || json.isEmpty()) {
+            json = prefs.getString(KEY_CACHE_NORMALIZED, null);
+        }
         if (json == null || json.isEmpty()) return null;
         try {
             WeatherData data = deserializeNormalized(json);
@@ -91,17 +114,52 @@ public class WeatherRepository {
         }
     }
 
+    public WeatherData loadCachedWeather() {
+        return loadCachedWeather(getSavedCity());
+    }
+
+    /**
+     * 每次有网时，在后台把所有 4 个预设地点（石首市、沅陵县、武清区、通州区）的天气数据都缓存下来兜底
+     */
+    public void prefetchAllPresetCities() {
+        long now = System.currentTimeMillis();
+        for (CityOption preset : PRESET_CITIES) {
+            try {
+                // 若 30 分钟内已缓存过该预设城市，跳过重复请求
+                String existing = prefs.getString(cityCacheKey(preset), null);
+                if (existing != null && !existing.isEmpty()) {
+                    try {
+                        JSONObject obj = new JSONObject(existing);
+                        long ts = obj.optLong("fetchedAtMillis", 0L);
+                        if ((now - ts) < 30L * 60L * 1000L) {
+                            continue;
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+                fetchWeatherInternal(preset, false);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     /**
      * 优先使用中国大陆直连的腾讯天气（7天完整预报），失败时自动降级到 Open-Meteo（10天预报）
      */
     public WeatherData fetchWeather(CityOption opt) throws Exception {
+        return fetchWeatherInternal(opt, true);
+    }
+
+    private WeatherData fetchWeatherInternal(CityOption opt, boolean updatePrimaryCache) throws Exception {
         WeatherData data = null;
         Exception primaryError = null;
 
         if (opt.province != null && !opt.province.isEmpty() && opt.city != null && !opt.city.isEmpty()) {
             try {
                 data = fetchFromTencent(opt);
-                AppSettings.setWeatherProvider(context, "腾讯天气（中国大陆直连）");
+                if (updatePrimaryCache) {
+                    AppSettings.setWeatherProvider(context, "腾讯天气（中国大陆直连）");
+                }
             } catch (Exception e) {
                 primaryError = e;
             }
@@ -110,7 +168,9 @@ public class WeatherRepository {
         if (data == null && (opt.latitude != 0 || opt.longitude != 0)) {
             try {
                 data = fetchFromOpenMeteo(opt);
-                AppSettings.setWeatherProvider(context, "Open-Meteo（备用坐标服务）");
+                if (updatePrimaryCache) {
+                    AppSettings.setWeatherProvider(context, "Open-Meteo（备用坐标服务）");
+                }
             } catch (Exception e) {
                 if (primaryError == null) primaryError = e;
             }
@@ -126,9 +186,14 @@ public class WeatherRepository {
         data.staleHours = 0;
         data.fetchedAtMillis = System.currentTimeMillis();
 
-        // 持久化完整多日数据，方便断网后连续多天查看
+        // 持久化该城市的完整多日数据，方便断网后连续多天查看
         try {
-            prefs.edit().putString(KEY_CACHE_NORMALIZED, serializeNormalized(data)).apply();
+            String serialized = serializeNormalized(data);
+            SharedPreferences.Editor editor = prefs.edit().putString(cityCacheKey(opt), serialized);
+            if (updatePrimaryCache) {
+                editor.putString(KEY_CACHE_NORMALIZED, serialized);
+            }
+            editor.apply();
         } catch (Exception ignored) {
         }
         return data;

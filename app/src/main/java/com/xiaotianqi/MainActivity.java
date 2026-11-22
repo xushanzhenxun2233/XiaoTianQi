@@ -13,7 +13,9 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.NetworkInfo;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -44,12 +46,20 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private static final int REQ_LOCATION = 1001;
     private static final long GPS_TIMEOUT_MS = 8000L;
 
-    private static final CityOption[] QUICK_CITIES = new CityOption[] {
-            new CityOption("荆州石首市", "湖北", "荆州", "石首", 29.7213, 112.4265),
-            new CityOption("沅陵县", "湖南", "怀化", "沅陵", 28.4557, 110.3963),
-            new CityOption("武清区", "天津", "天津", "武清", 39.3842, 117.0444),
-            new CityOption("通州区", "北京", "北京", "通州", 39.9097, 116.6564)
-    };
+    private static class NetStateCallback extends ConnectivityManager.NetworkCallback {
+        private final MainActivity host;
+        NetStateCallback(MainActivity host) {
+            this.host = host;
+        }
+        @Override
+        public void onAvailable(Network network) {
+            host.onNetworkStateChanged(true);
+        }
+        @Override
+        public void onLost(Network network) {
+            host.onNetworkStateChanged(false);
+        }
+    }
 
     private LinearLayout layoutTopHero;
     private TextView tvCity;
@@ -72,6 +82,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private WeatherRepository repository;
     private TtsManager ttsManager;
     private LocationManager locationManager;
+    private ConnectivityManager connectivityManager;
+    private NetStateCallback netStateCallback;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -112,7 +124,12 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
 
         repository = new WeatherRepository(this);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        registerNetworkCallback();
         ttsManager = new TtsManager(this, this);
+
+        // 先根据当前联网状态更新顶部地区是否可切换（断网置灰且禁止切换）
+        updateCitySwitchState(isNetworkConnected());
 
         // 先展示本地多天离线缓存（自动对齐到今天）
         WeatherData cached = repository.loadCachedWeather();
@@ -147,7 +164,13 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         layoutTtsBanner = findViewById(R.id.layoutTtsBanner);
         tvTtsBannerText = findViewById(R.id.tvTtsBannerText);
 
-        tvCity.setOnClickListener(v -> showCityPickerDialog());
+        tvCity.setOnClickListener(v -> {
+            if (!isNetworkConnected()) {
+                updateCitySwitchState(false);
+                return;
+            }
+            showCityPickerDialog();
+        });
 
         btnToggleTts.setOnClickListener(v -> {
             if (!ttsPausedTemporarily) {
@@ -181,8 +204,50 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
             recreate();
             return;
         }
+        updateCitySwitchState(isNetworkConnected());
         if (ttsManager != null) {
             ttsManager.setSpeechRate(AppSettings.getSpeechRate(this));
+        }
+    }
+
+    private void registerNetworkCallback() {
+        if (connectivityManager == null) return;
+        try {
+            netStateCallback = new NetStateCallback(this);
+            NetworkRequest req = new NetworkRequest.Builder().build();
+            connectivityManager.registerNetworkCallback(req, netStateCallback);
+        } catch (Exception ignored) {
+        }
+    }
+
+    void onNetworkStateChanged(boolean available) {
+        mainHandler.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            boolean online = available && isNetworkConnected();
+            updateCitySwitchState(online);
+            if (online) {
+                // 恢复联网后，自动刷新当前城市并后台缓存全部 4 个预设地点
+                loadWeatherForCity(repository.getSavedCity(), false);
+            }
+        });
+    }
+
+    private void updateCitySwitchState(boolean online) {
+        String cityLabel = currentWeather != null
+                ? currentWeather.cityName
+                : (repository != null ? repository.getSavedCity().name : WeatherRepository.DEFAULT_CITY.name);
+        if (online) {
+            tvCity.setText(cityLabel + " ▾");
+            tvCity.setTextColor(0xFFFFFFFF);
+            tvCity.setAlpha(1.0f);
+            tvCity.setEnabled(true);
+            tvCity.setClickable(true);
+        } else {
+            tvCity.setText(cityLabel);
+            tvCity.setTextColor(0xFFBDBDBD);
+            tvCity.setAlpha(0.75f);
+            tvCity.setEnabled(false);
+            tvCity.setClickable(false);
         }
     }
 
@@ -343,8 +408,9 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     }
 
     private void loadWeatherForCity(final CityOption city, final boolean autoSpeak) {
-        tvCity.setText(city.name + " ▾");
-        if (!isNetworkConnected()) {
+        boolean online = isNetworkConnected();
+        updateCitySwitchState(online);
+        if (!online) {
             handleOfflineOrFetchError(autoSpeak, "当前手机未联网");
             return;
         }
@@ -357,10 +423,13 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private void fetchWeatherInBackground(final CityOption city, final boolean autoSpeak) {
         try {
             final WeatherData data = repository.fetchWeather(city);
+            // 每次有网时，后台静默把全部 4 个预设地点的数据都缓存下来兜底
+            executor.execute(() -> repository.prefetchAllPresetCities());
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 layoutStaleBanner.setVisibility(View.GONE);
                 renderWeather(data);
+                updateCitySwitchState(true);
                 if (autoSpeak && !hasAutoSpoken && !ttsPausedTemporarily) {
                     speakTodayWeather(false);
                 }
@@ -368,6 +437,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         } catch (final Exception e) {
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
+                updateCitySwitchState(isNetworkConnected());
                 handleOfflineOrFetchError(autoSpeak, "网络请求失败");
             });
         }
@@ -466,7 +536,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         getWindow().setStatusBarColor(topColor);
 
         // 1. 顶部：城市 + 居中大号气温 + 紧挨整天气温/天气状态/风向风速 + 农历日期
-        tvCity.setText(data.cityName + " ▾");
+        updateCitySwitchState(isNetworkConnected());
         tvCurrentTemp.setText(Math.round(data.currentTemp) + "°");
 
         String desc = !TextUtils.isEmpty(data.weatherText)
@@ -759,11 +829,11 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
             requestLocationOrFallback();
         });
 
-        for (int i = 0; i < QUICK_CITIES.length; i += 2) {
+        for (int i = 0; i < WeatherRepository.PRESET_CITIES.length; i += 2) {
             LinearLayout gridRow = new LinearLayout(this);
             gridRow.setOrientation(LinearLayout.HORIZONTAL);
-            for (int j = 0; j < 2 && (i + j) < QUICK_CITIES.length; j++) {
-                final CityOption opt = QUICK_CITIES[i + j];
+            for (int j = 0; j < 2 && (i + j) < WeatherRepository.PRESET_CITIES.length; j++) {
+                final CityOption opt = WeatherRepository.PRESET_CITIES[i + j];
                 TextView chip = new TextView(this);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
                 lp.setMargins(dp(4), dp(4), dp(4), dp(4));
@@ -850,6 +920,12 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     protected void onDestroy() {
         super.onDestroy();
         stopGpsListening();
+        if (connectivityManager != null && netStateCallback != null) {
+            try {
+                connectivityManager.unregisterNetworkCallback(netStateCallback);
+            } catch (Exception ignored) {
+            }
+        }
         if (ttsManager != null) {
             ttsManager.shutdown();
         }
