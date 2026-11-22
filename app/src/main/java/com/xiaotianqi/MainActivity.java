@@ -711,72 +711,70 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
 
         rowWrap.addView(topRow);
 
-        // 第二行：气象参数（风向风力、降水等）+ 需注意事项的高对比度强调标签
-        LinearLayout metaRow = new LinearLayout(this);
-        metaRow.setOrientation(LinearLayout.HORIZONTAL);
-        metaRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        metaLp.topMargin = dp(5);
-        metaRow.setLayoutParams(metaLp);
-
+        // 第二行：公历 + 农历日期 + 常规风向风速参数
         int windLevel = WeatherModels.getWindLevel(df.maxWindSpeed);
         String windText = !TextUtils.isEmpty(df.windDesc) ? df.windDesc : WeatherModels.getWindDesc(df.maxWindSpeed);
-        boolean hasHighContrastTag = false;
+        String dateLunar = LunarCalendarUtil.getSolarAndLunarForDate(df.date);
 
-        // 1) 极端降水/雷暴/大雪高对比度强调
+        StringBuilder infoSb = new StringBuilder();
+        if (!TextUtils.isEmpty(dateLunar)) {
+            infoSb.append(dateLunar);
+        }
+        if (!TextUtils.isEmpty(windText)) {
+            if (infoSb.length() > 0) infoSb.append("  ·  ");
+            infoSb.append(windText);
+        }
+        if (df.precipProb >= 20) {
+            if (infoSb.length() > 0) infoSb.append("  ·  ");
+            infoSb.append("降水 ").append(df.precipProb).append("%");
+        }
+        if (infoSb.length() > 0) {
+            TextView tvInfo = new TextView(this);
+            LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            infoLp.topMargin = dp(4);
+            tvInfo.setLayoutParams(infoLp);
+            tvInfo.setText(infoSb.toString());
+            tvInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            tvInfo.setTextColor(0xFF666666);
+            rowWrap.addView(tvInfo);
+        }
+
+        // 第三行（仅在有需注意事项时显示）：高对比度强调标签
+        LinearLayout tagRow = new LinearLayout(this);
+        tagRow.setOrientation(LinearLayout.HORIZONTAL);
+        tagRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams tagLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tagLp.topMargin = dp(5);
+        tagRow.setLayoutParams(tagLp);
+
         if (df.weatherCode >= 95) {
-            addContrastTag(metaRow, "雷暴防雷", 0xFFC62828, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "雷暴防雷", 0xFFC62828, 0xFFFFFFFF);
         } else if (df.weatherCode == 82 || df.weatherCode == 65 || df.weatherCode == 56 || df.weatherCode == 57
                 || df.weatherCode == 66 || df.weatherCode == 67) {
-            addContrastTag(metaRow, "强降雨防滑", 0xFFC62828, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "强降雨防滑", 0xFFC62828, 0xFFFFFFFF);
         } else if (df.weatherCode == 75 || df.weatherCode == 86) {
-            addContrastTag(metaRow, "大雪防冻滑", 0xFFC62828, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "大雪防冻滑", 0xFFC62828, 0xFFFFFFFF);
         } else if (df.weatherCode == 63 || df.weatherCode == 81 || df.weatherCode == 73
                 || df.weatherCode == 61 || df.weatherCode == 80 || df.weatherCode == 51
                 || df.weatherCode == 53 || df.weatherCode == 55 || df.weatherCode == 71 || df.precipProb >= 50) {
             String rainLabel = df.precipProb >= 20 ? ("有雨 " + df.precipProb + "%") : "有雨带伞";
-            addContrastTag(metaRow, rainLabel, 0xFF1565C0, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, rainLabel, 0xFF1565C0, 0xFFFFFFFF);
         }
 
-        // 2) 大风高对比度强调（5级及以上）
         if (windLevel >= 5) {
-            addContrastTag(metaRow, "大风 " + windLevel + "级", 0xFFD84315, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "大风 " + windLevel + "级", 0xFFD84315, 0xFFFFFFFF);
         }
 
-        // 3) 极端高温 / 严寒高对比度强调
         if (df.maxTemp >= 35.0) {
-            addContrastTag(metaRow, "高温防暑", 0xFFB71C1C, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "高温防暑", 0xFFB71C1C, 0xFFFFFFFF);
         } else if (df.minTemp <= 0.0) {
-            addContrastTag(metaRow, "低温防冻", 0xFF0D47A1, 0xFFFFFFFF);
-            hasHighContrastTag = true;
+            addContrastTag(tagRow, "低温防冻", 0xFF0D47A1, 0xFFFFFFFF);
         }
 
-        // 常规风向风速参数
-        TextView tvMeta = new TextView(this);
-        StringBuilder metaSb = new StringBuilder();
-        if (!TextUtils.isEmpty(windText)) {
-            metaSb.append(windText);
-        }
-        if (df.precipProb >= 20 && !hasHighContrastTag) {
-            if (metaSb.length() > 0) metaSb.append("  ");
-            metaSb.append("降水 ").append(df.precipProb).append("%");
-        }
-        if (metaSb.length() > 0) {
-            tvMeta.setText(metaSb.toString());
-            tvMeta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            tvMeta.setTextColor(0xFF666666);
-            metaRow.addView(tvMeta);
-        }
-
-        if (metaRow.getChildCount() > 0) {
-            rowWrap.addView(metaRow);
+        if (tagRow.getChildCount() > 0) {
+            rowWrap.addView(tagRow);
         }
 
         return rowWrap;
@@ -934,8 +932,12 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         String[] wDescs = {windDesc, "北风 6级", "东风 4级", "东南风 3级", "微风"};
         int[] probs = {90, 80, 55, 10, 0};
 
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US);
+        java.util.Calendar cal = java.util.Calendar.getInstance();
         for (int i = 0; i < labels.length; i++) {
             DailyForecast df = new DailyForecast();
+            df.date = sdf.format(cal.getTime());
+            cal.add(java.util.Calendar.DAY_OF_YEAR, 1);
             df.dayLabel = labels[i];
             df.weatherCode = codes[i];
             df.weatherText = texts[i];

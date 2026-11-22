@@ -22,9 +22,27 @@ public final class LunarCalendarUtil {
     private LunarCalendarUtil() {}
 
     public static String getTodayLunarDisplay() {
-        String solar = new SimpleDateFormat("M月d日", Locale.CHINA).format(new Date());
+        return formatSolarAndLunar(new Date());
+    }
+
+    public static String getSolarAndLunarForDate(String yyyyMMdd) {
+        if (yyyyMMdd == null || yyyyMMdd.trim().isEmpty()) return "";
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+            Date d = sdf.parse(yyyyMMdd.trim());
+            if (d != null) {
+                return formatSolarAndLunar(d);
+            }
+        } catch (Exception ignored) {
+        }
+        return yyyyMMdd;
+    }
+
+    private static String formatSolarAndLunar(Date date) {
+        String solar = new SimpleDateFormat("M月d日", Locale.CHINA).format(date);
         try {
             ChineseCalendar cc = new ChineseCalendar();
+            cc.setTime(date);
             int month = cc.get(ChineseCalendar.MONTH); // 0-11
             int day = cc.get(ChineseCalendar.DAY_OF_MONTH); // 1-30
             int isLeap = cc.get(ChineseCalendar.IS_LEAP_MONTH);
@@ -32,7 +50,7 @@ public final class LunarCalendarUtil {
             String monthStr = (month >= 0 && month < LUNAR_MONTHS.length) ? LUNAR_MONTHS[month] : "";
             String dayStr = (day >= 1 && day < LUNAR_DAYS.length) ? LUNAR_DAYS[day] : "";
             String leapPrefix = (isLeap == 1) ? "闰" : "";
-            return solar + "  农历" + leapPrefix + monthStr + dayStr;
+            return solar + " 农历" + leapPrefix + monthStr + dayStr;
         } catch (Exception e) {
             return solar;
         }
