@@ -1,4 +1,4 @@
-package com.xiaotianqi;
+package com.xiafengguan;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -99,7 +99,7 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
             if (ttsManager.isInitialized() && !ttsManager.isAvailable()) {
                 Toast.makeText(this, "当前设备未安装中文语音引擎", Toast.LENGTH_SHORT).show();
             } else {
-                ttsManager.speak("魈天气为您播报，当前语速测试正常。");
+                ttsManager.speak("遐风观为您播报，当前语速测试正常。");
             }
         });
 

@@ -62,7 +62,7 @@ if (-not (Test-Path $keystore)) {
     if ($LASTEXITCODE -ne 0) { throw "keytool failed" }
 }
 
-$finalApk = "$distDir\XiaoTianQi-v1.0.0.apk"
+$finalApk = "$distDir\XiaFengGuan-v1.7.0.apk"
 & $apksigner sign --ks $keystore --ks-pass pass:android --ks-key-alias xiao_debug --key-pass pass:android --out $finalApk $alignedApk
 if ($LASTEXITCODE -ne 0) { throw "apksigner sign failed" }
 

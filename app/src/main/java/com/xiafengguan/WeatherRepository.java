@@ -1,13 +1,13 @@
-package com.xiaotianqi;
+package com.xiafengguan;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.location.Address;
 import android.location.Geocoder;
 
-import com.xiaotianqi.WeatherModels.CityOption;
-import com.xiaotianqi.WeatherModels.DailyForecast;
-import com.xiaotianqi.WeatherModels.WeatherData;
+import com.xiafengguan.WeatherModels.CityOption;
+import com.xiafengguan.WeatherModels.DailyForecast;
+import com.xiafengguan.WeatherModels.WeatherData;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -954,7 +954,7 @@ public class WeatherRepository {
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(6500);
             conn.setReadTimeout(6500);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 XiaoTianQi/1.1");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 XiaFengGuan/1.1");
 
             int code = conn.getResponseCode();
             if (code != HttpURLConnection.HTTP_OK) {

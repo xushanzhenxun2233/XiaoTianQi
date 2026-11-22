@@ -1,4 +1,4 @@
-package com.xiaotianqi;
+package com.xiafengguan;
 
 import android.Manifest;
 import android.app.Activity;
@@ -32,10 +32,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.xiaotianqi.WeatherModels.CityOption;
-import com.xiaotianqi.WeatherModels.DailyForecast;
-import com.xiaotianqi.WeatherModels.LaborAdvice;
-import com.xiaotianqi.WeatherModels.WeatherData;
+import com.xiafengguan.WeatherModels.CityOption;
+import com.xiafengguan.WeatherModels.DailyForecast;
+import com.xiafengguan.WeatherModels.LaborAdvice;
+import com.xiafengguan.WeatherModels.WeatherData;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -976,7 +976,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
                 : WeatherModels.getWeatherText(currentWeather.weatherCode);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("魈天气为您播报。");
+        sb.append("遐风观为您播报。");
         sb.append(currentWeather.cityName).append("，");
         sb.append("今天").append(wText).append("，");
         if (!currentWeather.isOfflineShifted) {
@@ -1058,7 +1058,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         if (isFinishing() || isDestroyed()) return;
         new AlertDialog.Builder(this)
                 .setTitle("建议安装语音朗读引擎（TTS）")
-                .setMessage(reason + "\n\n为了在打开「魈天气」时自动播报今日气温，建议您安装并启用中文语音引擎（如：讯飞语记 / 微软语音 / Google 文字转语音，或在系统设置中开启文字转语音）。")
+                .setMessage(reason + "\n\n为了在打开「遐风观」时自动播报今日气温，建议您安装并启用中文语音引擎（如：讯飞语记 / 微软语音 / Google 文字转语音，或在系统设置中开启文字转语音）。")
                 .setPositiveButton("安装语音数据", (dialog, which) -> {
                     boolean opened = TtsManager.openInstallTtsData(MainActivity.this);
                     if (!opened) {

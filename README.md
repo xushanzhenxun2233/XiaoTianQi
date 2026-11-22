@@ -1,4 +1,4 @@
-# 魈天气（XiaoTianQi）
+# 遐风观（XiaoTianQi）
 
 一款超级精简、面向国内日常与长辈使用优化的 Android 天气应用（纯 Android SDK 原生开发，零第三方依赖，安装包不到 700 KB）。
 

@@ -1,8 +1,8 @@
-package com.xiaotianqi;
+package com.xiafengguan;
 
-import com.xiaotianqi.WeatherModels.DailyForecast;
-import com.xiaotianqi.WeatherModels.LaborAdvice;
-import com.xiaotianqi.WeatherModels.WeatherData;
+import com.xiafengguan.WeatherModels.DailyForecast;
+import com.xiafengguan.WeatherModels.LaborAdvice;
+import com.xiafengguan.WeatherModels.WeatherData;
 
 import java.util.ArrayList;
 import java.util.List;
