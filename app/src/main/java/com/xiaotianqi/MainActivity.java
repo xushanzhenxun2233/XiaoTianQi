@@ -69,6 +69,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private TextView tvCurrentTemp;
     private TextView tvWeatherLine;
     private TextView tvLunarDate;
+    private LinearLayout layoutExtremeAlert;
+    private TextView tvExtremeAlert;
     private LinearLayout layoutStaleBanner;
     private TextView tvStaleText;
     private TextView btnOpenData;
@@ -94,7 +96,29 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     private boolean hasShownTtsDialog = false;
     private boolean hasShownExpiredDialog = false;
     private boolean waitingForGps = false;
+    private boolean simulatedOffline = false;
     private float appliedFontScale = AppSettings.FONT_LARGE;
+    private int flashStep = 0;
+
+    private final Runnable extremeFlashTask = this::stepExtremeFlash;
+
+    private void stepExtremeFlash() {
+        if (isFinishing() || isDestroyed() || layoutExtremeAlert == null) return;
+        if (flashStep >= 8) {
+            layoutExtremeAlert.setBackgroundColor(0xFFC62828);
+            tvExtremeAlert.setTextColor(0xFFFFFFFF);
+            return;
+        }
+        if (flashStep % 2 == 0) {
+            layoutExtremeAlert.setBackgroundColor(0xFFFFD600);
+            tvExtremeAlert.setTextColor(0xFF111111);
+        } else {
+            layoutExtremeAlert.setBackgroundColor(0xFFC62828);
+            tvExtremeAlert.setTextColor(0xFFFFFFFF);
+        }
+        flashStep++;
+        mainHandler.postDelayed(extremeFlashTask, 250L);
+    }
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -154,6 +178,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         tvCurrentTemp = findViewById(R.id.tvCurrentTemp);
         tvWeatherLine = findViewById(R.id.tvWeatherLine);
         tvLunarDate = findViewById(R.id.tvLunarDate);
+        layoutExtremeAlert = findViewById(R.id.layoutExtremeAlert);
+        tvExtremeAlert = findViewById(R.id.tvExtremeAlert);
         layoutStaleBanner = findViewById(R.id.layoutStaleBanner);
         tvStaleText = findViewById(R.id.tvStaleText);
         btnOpenData = findViewById(R.id.btnOpenData);
@@ -186,6 +212,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         });
 
         btnRefresh.setOnClickListener(v -> {
+            simulatedOffline = false;
             CityOption city = repository.getSavedCity();
             Toast.makeText(MainActivity.this, "正在刷新天气...", Toast.LENGTH_SHORT).show();
             loadWeatherForCity(city, false);
@@ -198,13 +225,26 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.hasExtra("xiao_test_action")) {
+            String action = intent.getStringExtra("xiao_test_action");
+            intent.removeExtra("xiao_test_action");
+            if (!TextUtils.isEmpty(action)) {
+                runTestScenario(action);
+            }
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (Math.abs(AppSettings.getFontScale(this) - appliedFontScale) > 0.01f) {
             recreate();
             return;
         }
-        updateCitySwitchState(isNetworkConnected());
+        updateCitySwitchState(!simulatedOffline && isNetworkConnected());
         if (ttsManager != null) {
             ttsManager.setSpeechRate(AppSettings.getSpeechRate(this));
         }
@@ -427,9 +467,11 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
             executor.execute(() -> repository.prefetchAllPresetCities());
             mainHandler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
+                simulatedOffline = false;
                 layoutStaleBanner.setVisibility(View.GONE);
                 renderWeather(data);
                 updateCitySwitchState(true);
+                checkAndFlashExtremeWeather(data, true);
                 if (autoSpeak && !hasAutoSpoken && !ttsPausedTemporarily) {
                     speakTodayWeather(false);
                 }
@@ -536,7 +578,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         getWindow().setStatusBarColor(topColor);
 
         // 1. 顶部：城市 + 居中大号气温 + 紧挨整天气温/天气状态/风向风速 + 农历日期
-        updateCitySwitchState(isNetworkConnected());
+        updateCitySwitchState(!simulatedOffline && isNetworkConnected());
         tvCurrentTemp.setText(Math.round(data.currentTemp) + "°");
 
         String desc = !TextUtils.isEmpty(data.weatherText)
@@ -607,10 +649,13 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     }
 
     private View buildForecastRow(DailyForecast df, boolean isToday) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(12), 0, dp(12));
+        LinearLayout rowWrap = new LinearLayout(this);
+        rowWrap.setOrientation(LinearLayout.VERTICAL);
+        rowWrap.setPadding(0, dp(11), 0, dp(11));
+
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView tvDay = new TextView(this);
         LinearLayout.LayoutParams lpDay = new LinearLayout.LayoutParams(
@@ -625,7 +670,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         if (isToday) {
             tvDay.setTypeface(null, Typeface.BOLD);
         }
-        row.addView(tvDay);
+        topRow.addView(tvDay);
 
         TextView tvCond = new TextView(this);
         LinearLayout.LayoutParams lpCond = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -636,8 +681,8 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
                 : WeatherModels.getWeatherText(df.weatherCode);
         tvCond.setText(wText);
         tvCond.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        tvCond.setTextColor(0xFF555555);
-        row.addView(tvCond);
+        tvCond.setTextColor(0xFF333333);
+        topRow.addView(tvCond);
 
         TextView tvRange = new TextView(this);
         LinearLayout.LayoutParams lpRange = new LinearLayout.LayoutParams(
@@ -648,9 +693,246 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
         tvRange.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         tvRange.setTextColor(0xFF111111);
         tvRange.setTypeface(null, Typeface.BOLD);
-        row.addView(tvRange);
+        topRow.addView(tvRange);
 
-        return row;
+        rowWrap.addView(topRow);
+
+        // 第二行：气象参数（风向风力、降水等）+ 需注意事项的高对比度强调标签
+        LinearLayout metaRow = new LinearLayout(this);
+        metaRow.setOrientation(LinearLayout.HORIZONTAL);
+        metaRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        metaLp.topMargin = dp(5);
+        metaRow.setLayoutParams(metaLp);
+
+        int windLevel = WeatherModels.getWindLevel(df.maxWindSpeed);
+        String windText = !TextUtils.isEmpty(df.windDesc) ? df.windDesc : WeatherModels.getWindDesc(df.maxWindSpeed);
+        boolean hasHighContrastTag = false;
+
+        // 1) 极端降水/雷暴/大雪高对比度强调
+        if (df.weatherCode >= 95) {
+            addContrastTag(metaRow, "雷暴防雷", 0xFFC62828, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        } else if (df.weatherCode == 82 || df.weatherCode == 65 || df.weatherCode == 56 || df.weatherCode == 57
+                || df.weatherCode == 66 || df.weatherCode == 67) {
+            addContrastTag(metaRow, "强降雨防滑", 0xFFC62828, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        } else if (df.weatherCode == 75 || df.weatherCode == 86) {
+            addContrastTag(metaRow, "大雪防冻滑", 0xFFC62828, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        } else if (df.weatherCode == 63 || df.weatherCode == 81 || df.weatherCode == 73
+                || df.weatherCode == 61 || df.weatherCode == 80 || df.weatherCode == 51
+                || df.weatherCode == 53 || df.weatherCode == 55 || df.weatherCode == 71 || df.precipProb >= 50) {
+            String rainLabel = df.precipProb >= 20 ? ("有雨 " + df.precipProb + "%") : "有雨带伞";
+            addContrastTag(metaRow, rainLabel, 0xFF1565C0, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        }
+
+        // 2) 大风高对比度强调（5级及以上）
+        if (windLevel >= 5) {
+            addContrastTag(metaRow, "大风 " + windLevel + "级", 0xFFD84315, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        }
+
+        // 3) 极端高温 / 严寒高对比度强调
+        if (df.maxTemp >= 35.0) {
+            addContrastTag(metaRow, "高温防暑", 0xFFB71C1C, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        } else if (df.minTemp <= 0.0) {
+            addContrastTag(metaRow, "低温防冻", 0xFF0D47A1, 0xFFFFFFFF);
+            hasHighContrastTag = true;
+        }
+
+        // 常规风向风速参数
+        TextView tvMeta = new TextView(this);
+        StringBuilder metaSb = new StringBuilder();
+        if (!TextUtils.isEmpty(windText)) {
+            metaSb.append(windText);
+        }
+        if (df.precipProb >= 20 && !hasHighContrastTag) {
+            if (metaSb.length() > 0) metaSb.append("  ");
+            metaSb.append("降水 ").append(df.precipProb).append("%");
+        }
+        if (metaSb.length() > 0) {
+            tvMeta.setText(metaSb.toString());
+            tvMeta.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            tvMeta.setTextColor(0xFF666666);
+            metaRow.addView(tvMeta);
+        }
+
+        if (metaRow.getChildCount() > 0) {
+            rowWrap.addView(metaRow);
+        }
+
+        return rowWrap;
+    }
+
+    private void addContrastTag(LinearLayout parent, String text, int bgColor, int textColor) {
+        TextView tag = new TextView(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(8);
+        tag.setLayoutParams(lp);
+        tag.setPadding(dp(7), dp(2), dp(7), dp(2));
+        tag.setBackgroundColor(bgColor);
+        tag.setText(text);
+        tag.setTextColor(textColor);
+        tag.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tag.setTypeface(null, Typeface.BOLD);
+        parent.addView(tag);
+    }
+
+    /**
+     * 联网获取天气时，若今天或近日存在极端天气，高亮展示并闪烁 2 秒提醒
+     */
+    private void checkAndFlashExtremeWeather(WeatherData data, boolean isOnline) {
+        mainHandler.removeCallbacks(extremeFlashTask);
+        if (!isOnline || data == null) {
+            layoutExtremeAlert.setVisibility(View.GONE);
+            return;
+        }
+
+        StringBuilder alertSb = new StringBuilder();
+        int checkCount = Math.min(data.dailyList.size(), 4);
+        for (int i = 0; i < checkCount; i++) {
+            DailyForecast df = data.dailyList.get(i);
+            String hazard = detectExtremeHazard(df, i == 0 ? data.currentTemp : df.maxTemp, i == 0 ? data.windSpeed : df.maxWindSpeed);
+            if (hazard != null) {
+                if (alertSb.length() > 0) alertSb.append("；");
+                alertSb.append(df.dayLabel).append(" ").append(hazard);
+            }
+        }
+
+        if (alertSb.length() == 0) {
+            layoutExtremeAlert.setVisibility(View.GONE);
+            return;
+        }
+
+        tvExtremeAlert.setText("极端天气提醒：" + alertSb.toString() + "，请注意安全防护！");
+        layoutExtremeAlert.setVisibility(View.VISIBLE);
+        flashStep = 0;
+        mainHandler.post(extremeFlashTask);
+    }
+
+    private String detectExtremeHazard(DailyForecast df, double tempCheck, double windCheck) {
+        int code = df.weatherCode;
+        int windLv = WeatherModels.getWindLevel(Math.max(windCheck, df.maxWindSpeed));
+        if (code >= 95) return "雷暴/冰雹";
+        if (code == 82 || code == 65 || code == 56 || code == 57 || code == 66 || code == 67) return "暴雨/冻雨";
+        if (code == 75 || code == 86) return "大雪/暴雪";
+        if (windLv >= 6) return "大风(" + windLv + "级)";
+        if (df.maxTemp >= 35.0 || tempCheck >= 35.0) return "极端高温(" + Math.round(Math.max(df.maxTemp, tempCheck)) + "°C)";
+        if (df.minTemp <= -5.0 || tempCheck <= -5.0) return "严寒低温(" + Math.round(Math.min(df.minTemp, tempCheck)) + "°C)";
+        return null;
+    }
+
+    private void runTestScenario(String action) {
+        if ("test_reset_real".equals(action)) {
+            simulatedOffline = false;
+            layoutExtremeAlert.setVisibility(View.GONE);
+            layoutStaleBanner.setVisibility(View.GONE);
+            hasAutoSpoken = false;
+            Toast.makeText(this, "已恢复真实天气数据", Toast.LENGTH_SHORT).show();
+            loadWeatherForCity(repository.getSavedCity(), false);
+            return;
+        }
+        if ("test_open_data_panel".equals(action)) {
+            openMobileDataSettings();
+            return;
+        }
+        if ("test_no_tts".equals(action)) {
+            showInstallTtsDialog("【测试模拟】当前设备未安装中文 TTS 语音引擎。");
+            return;
+        }
+        if ("test_speak_now".equals(action)) {
+            ttsPausedTemporarily = false;
+            btnToggleTts.setText("关闭播报");
+            speakTodayWeather(true);
+            return;
+        }
+        if ("test_offline_mode".equals(action)) {
+            simulatedOffline = true;
+            layoutExtremeAlert.setVisibility(View.GONE);
+            updateCitySwitchState(false);
+            if (currentWeather != null) {
+                currentWeather.isFromCache = true;
+                currentWeather.isSeverelyExpired = false;
+                currentWeather.staleHours = 5;
+                updateStaleBanner(currentWeather, true);
+            }
+            Toast.makeText(this, "【测试】已切换为断网状态，顶部地区已置灰禁点", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if ("test_expired_data".equals(action)) {
+            simulatedOffline = true;
+            layoutExtremeAlert.setVisibility(View.GONE);
+            updateCitySwitchState(false);
+            WeatherData fake = buildMockWeather("荆州石首市", 18, 12, 20, "多云", 2, 12, "东南风 2级");
+            fake.isFromCache = true;
+            fake.isSeverelyExpired = true;
+            fake.staleHours = 75;
+            fake.updateTime = "3天前";
+            renderWeather(fake);
+            updateStaleBanner(fake, true);
+            showExpiredDataDialog(fake);
+            return;
+        }
+
+        simulatedOffline = false;
+        layoutStaleBanner.setVisibility(View.GONE);
+        WeatherData mock;
+        if ("test_extreme_heat".equals(action)) {
+            mock = buildMockWeather("荆州石首市", 38, 29, 39, "晴", 0, 15, "南风 3级");
+        } else if ("test_extreme_cold".equals(action)) {
+            mock = buildMockWeather("武清区", -6, -9, -2, "大雪", 75, 45, "北风 6级");
+        } else {
+            // test_extreme_storm
+            mock = buildMockWeather("沅陵县", 22, 18, 24, "雷暴冰雹", 96, 52, "西南风 7级");
+        }
+        renderWeather(mock);
+        updateCitySwitchState(true);
+        checkAndFlashExtremeWeather(mock, true);
+        if (!ttsPausedTemporarily) {
+            speakTodayWeather(true);
+        }
+    }
+
+    private WeatherData buildMockWeather(String city, double cur, double min, double max,
+                                         String wText, int code, double windKmh, String windDesc) {
+        WeatherData data = new WeatherData();
+        data.cityName = city;
+        data.currentTemp = cur;
+        data.apparentTemp = cur;
+        data.humidity = 68;
+        data.weatherText = wText;
+        data.weatherCode = code;
+        data.windSpeed = windKmh;
+        data.windDesc = windDesc;
+        data.updateTime = "测试模拟";
+        data.fetchedAtMillis = System.currentTimeMillis();
+        data.isFromCache = false;
+
+        String[] labels = {"今天", "明天", "后天", "周三", "周四"};
+        int[] codes = {code, 65, 61, 2, 0};
+        String[] texts = {wText, "大雨", "小雨", "多云", "晴"};
+        double[] winds = {windKmh, 42, 22, 14, 10};
+        String[] wDescs = {windDesc, "北风 6级", "东风 4级", "东南风 3级", "微风"};
+        int[] probs = {90, 80, 55, 10, 0};
+
+        for (int i = 0; i < labels.length; i++) {
+            DailyForecast df = new DailyForecast();
+            df.dayLabel = labels[i];
+            df.weatherCode = codes[i];
+            df.weatherText = texts[i];
+            df.minTemp = i == 0 ? min : min + i;
+            df.maxTemp = i == 0 ? max : max - i;
+            df.maxWindSpeed = winds[i];
+            df.windDesc = wDescs[i];
+            df.precipProb = probs[i];
+            data.dailyList.add(df);
+        }
+        return data;
     }
 
     private void speakTodayWeather(boolean userTriggered) {
@@ -919,6 +1201,7 @@ public class MainActivity extends Activity implements TtsManager.Callback, Locat
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        mainHandler.removeCallbacks(extremeFlashTask);
         stopGpsListening();
         if (connectivityManager != null && netStateCallback != null) {
             try {

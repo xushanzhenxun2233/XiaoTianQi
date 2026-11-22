@@ -3,8 +3,10 @@ package com.xiaotianqi;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -76,7 +78,63 @@ public class SettingsActivity extends Activity implements TtsManager.Callback {
         ivWechat.setOnClickListener(v -> showZoomQrDialog("微信扫码联系", R.drawable.qr_wechat));
         ivDouyin.setOnClickListener(v -> showZoomQrDialog("抖音扫码联系", R.drawable.qr_douyin));
 
+        setupTestButtons();
         refreshSelectionStates();
+    }
+
+    private void setupTestButtons() {
+        LinearLayout container = findViewById(R.id.layoutTestButtons);
+        String[][] tests = new String[][] {
+                {"TEST: 极端高温（38°C 红色 + 闪烁2秒）", "test_extreme_heat"},
+                {"TEST: 严寒大雪（-6°C 蓝色 + 闪烁2秒）", "test_extreme_cold"},
+                {"TEST: 雷暴暴雨大风（绿色 + 高对比度提醒 + 闪烁2秒）", "test_extreme_storm"},
+                {"TEST: 断网状态（顶部地区置灰禁止切换）", "test_offline_mode"},
+                {"TEST: 数据严重过期（引导打开流量弹窗）", "test_expired_data"},
+                {"TEST: 无 TTS 引擎（引导安装语音引擎弹窗）", "test_no_tts"},
+                {"TEST: 立即语音播报今日天气", "test_speak_now"},
+                {"TEST: 打开系统流量/网络开关面板", "test_open_data_panel"},
+                {"恢复真实天气数据", "test_reset_real"}
+        };
+
+        int padH = dp(14);
+        int padV = dp(11);
+        for (int i = 0; i < tests.length; i++) {
+            final String label = tests[i][0];
+            final String action = tests[i][1];
+            boolean isReset = "test_reset_real".equals(action);
+
+            TextView btn = new TextView(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.topMargin = dp(8);
+            btn.setLayoutParams(lp);
+            btn.setPadding(padH, padV, padH, padV);
+            btn.setText(label);
+            btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            if (isReset) {
+                btn.setBackgroundColor(0xFF111111);
+                btn.setTextColor(0xFFFFFFFF);
+                btn.setTypeface(null, Typeface.BOLD);
+            } else {
+                btn.setBackgroundColor(0xFFF3F3F3);
+                btn.setTextColor(0xFF111111);
+            }
+            btn.setOnClickListener(v -> triggerTestInMain(action));
+            container.addView(btn);
+        }
+    }
+
+    private void triggerTestInMain(String testAction) {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("xiao_test_action", testAction);
+        startActivity(intent);
+        finish();
+    }
+
+    private int dp(int v) {
+        return Math.round(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
     }
 
     private void applyFontScale(float scale) {
